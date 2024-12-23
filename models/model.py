@@ -2,7 +2,7 @@ import torch
 import torch.nn.functional as F
 from torch import nn, einsum
 import numpy as np
-from einops import rearrange
+from einops import rearrange, repeat 
 
 # helpers
 
@@ -83,20 +83,80 @@ class Attention(nn.Module):
         out = rearrange(out, 'b h n d -> b n (h d)', h = h)
         return self.to_out(out)
 
-
-class RowColTransformer(nn.Module):
-    def __init__(self, num_tokens, dim, nfeats, depth, heads, dim_head, attn_dropout, ff_dropout,style='col'):
+class CrossAttention(nn.Module):
+    def __init__(self, dim, prototype_dim=None, heads=8, dim_head=16, dropout=0.0):
         super().__init__()
+        inner_dim = dim_head * heads
+        prototype_dim = prototype_dim or dim  # Use the same dim if context_dim is not specified
+
+        self.heads = heads
+        self.scale = dim_head ** -0.5
+
+        # Layers to project input and context to queries, keys, and values
+        self.to_q = nn.Linear(dim, inner_dim, bias=False)
+        self.to_kv = nn.Linear(prototype_dim, inner_dim * 2, bias=False)
+
+        # Output projection
+        self.to_out = nn.Linear(inner_dim, dim)
+
+        # Dropout layer
+        self.dropout = nn.Dropout(dropout)
+
+    #context -> prototypes
+    def forward(self, x, prototypes):
+        """
+        x: Input tensor for queries, shape (batch_size, feats, dim)
+        context: Context tensor for keys and values, shape (context_len, context_dim)
+        """
+        h = self.heads
+
+        # Calculate queries
+        q = self.to_q(x)  # (batch_size, inner_dim)
+
+        # If context is missing batch dimension, we broadcast it
+        prototypes = repeat(prototypes, 'n d -> b n d', b=x.size(0))
+
+        # Calculate keys and values from the context
+        k, v = self.to_kv(prototypes).chunk(2, dim=-1)
+
+        # Reshape tensors to separate heads
+        #q = rearrange(q, 'b n (h d) -> b h n d', h=h)
+        q = rearrange(q, 'b n (h d) -> b h n d', h=h)
+        k = rearrange(k, 'b n (h d) -> b h n d', h=h)
+        v = rearrange(v, 'b n (h d) -> b h n d', h=h)
+
+        # Compute scaled dot-product attention
+        sim = einsum('b h i d, b h j d -> b h i j', q, k) * self.scale
+        attn = sim.softmax(dim=-1)
+        attn = self.dropout(attn)  # Apply dropout to attention scores
+
+        # Compute attention output
+        out = einsum('b h i j, b h j d -> b h i d', attn, v)
+
+        # Reshape output and apply final linear layer
+        #out = rearrange(out, 'b h n d -> b n (h d)')
+        out = rearrange(out, 'b h n d -> b n (h d)')
+        return self.to_out(out)
+
+class MyRowColTransformer(nn.Module):
+    # testing prototype
+    #prot_rows
+    def __init__(self, num_tokens, dim, nfeats, depth, heads, dim_head, attn_dropout, ff_dropout,style='col', prot_rows = 3):
+        super().__init__()
+        print(prot_rows,"prot")
         self.embeds = nn.Embedding(num_tokens, dim)
         self.layers = nn.ModuleList([])
         self.mask_embed =  nn.Embedding(nfeats, dim)
         self.style = style
+
+        #testing
+        self.prototypes = nn.Parameter(torch.randn(prot_rows, nfeats * dim))
         for _ in range(depth):
             if self.style == 'colrow':
                 self.layers.append(nn.ModuleList([
                     PreNorm(dim, Residual(Attention(dim, heads = heads, dim_head = dim_head, dropout = attn_dropout))),
                     PreNorm(dim, Residual(FeedForward(dim, dropout = ff_dropout))),
-                    PreNorm(dim*nfeats, Residual(Attention(dim*nfeats, heads = heads, dim_head = 64, dropout = attn_dropout))),
+                    PreNorm(dim*nfeats, Residual(CrossAttention(dim=dim*nfeats, prototype_dim=dim*nfeats, heads = heads, dim_head = 64, dropout = attn_dropout))),
                     PreNorm(dim*nfeats, Residual(FeedForward(dim*nfeats, dropout = ff_dropout))),
                 ]))
             else:
@@ -110,13 +170,16 @@ class RowColTransformer(nn.Module):
             x = torch.cat((x,x_cont),dim=1)
         _, n, _ = x.shape
         if self.style == 'colrow':
-            for attn1, ff1, attn2, ff2 in self.layers: 
+            for attn1, ff1, attn2, ff2 in self.layers:
                 x = attn1(x)
                 x = ff1(x)
-                x = rearrange(x, 'b n d -> 1 b (n d)')
-                x = attn2(x)
+                #to be checked
+           #     x = rearrange(x, 'b n d -> 1 b (n d)')
+                x = rearrange(x, 'b n d -> b 1 (n d)')
+                x = attn2(x=x, prototypes=self.prototypes)
                 x = ff2(x)
-                x = rearrange(x, '1 b (n d) -> b n d', n = n)
+           #     x = rearrange(x, '1 b (n d) -> b n d', n = n)
+                x = rearrange(x, ' b 1 (n d) -> b n d', n=n)
         else:
              for attn1, ff1 in self.layers:
                 x = rearrange(x, 'b n d -> 1 b (n d)')
@@ -124,6 +187,47 @@ class RowColTransformer(nn.Module):
                 x = ff1(x)
                 x = rearrange(x, '1 b (n d) -> b n d', n = n)
         return x
+
+# class RowColTransformer(nn.Module):
+#     def __init__(self, num_tokens, dim, nfeats, depth, heads, dim_head, attn_dropout, ff_dropout,style='col'):
+#         super().__init__()
+#         self.embeds = nn.Embedding(num_tokens, dim)
+#         self.layers = nn.ModuleList([])
+#         self.mask_embed =  nn.Embedding(nfeats, dim)
+#         self.style = style
+#         for _ in range(depth):
+#             if self.style == 'colrow':
+#                 self.layers.append(nn.ModuleList([
+#                     PreNorm(dim, Residual(Attention(dim, heads = heads, dim_head = dim_head, dropout = attn_dropout))),
+#                     PreNorm(dim, Residual(FeedForward(dim, dropout = ff_dropout))),
+#                     PreNorm(dim*nfeats, Residual(Attention(dim*nfeats, heads = heads, dim_head = 64, dropout = attn_dropout))),
+#                     PreNorm(dim*nfeats, Residual(FeedForward(dim*nfeats, dropout = ff_dropout))),
+#                 ]))
+#             else:
+#                 self.layers.append(nn.ModuleList([
+#                     PreNorm(dim*nfeats, Residual(Attention(dim*nfeats, heads = heads, dim_head = 64, dropout = attn_dropout))),
+#                     PreNorm(dim*nfeats, Residual(FeedForward(dim*nfeats, dropout = ff_dropout))),
+#                 ]))
+
+#     def forward(self, x, x_cont=None, mask = None):
+#         if x_cont is not None:
+#             x = torch.cat((x,x_cont),dim=1)
+#         _, n, _ = x.shape
+#         if self.style == 'colrow':
+#             for attn1, ff1, attn2, ff2 in self.layers: 
+#                 x = attn1(x)
+#                 x = ff1(x)
+#                 x = rearrange(x, 'b n d -> 1 b (n d)')
+#                 x = attn2(x)
+#                 x = ff2(x)
+#                 x = rearrange(x, '1 b (n d) -> b n d', n = n)
+#         else:
+#              for attn1, ff1 in self.layers:
+#                 x = rearrange(x, 'b n d -> 1 b (n d)')
+#                 x = attn1(x)
+#                 x = ff1(x)
+#                 x = rearrange(x, '1 b (n d) -> b n d', n = n)
+#         return x
 
 
 # transformer

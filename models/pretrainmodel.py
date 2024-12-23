@@ -38,9 +38,11 @@ class SAINT(nn.Module):
         scalingfactor = 10,
         attentiontype = 'col',
         final_mlp_style = 'common',
-        y_dim = 2
+        y_dim = 2,
+        prot_rows = 32
         ):
         super().__init__()
+        
         assert all(map(lambda n: n > 0, categories)), 'number of each category must be positive'
 
         # categories related calculations
@@ -93,7 +95,7 @@ class SAINT(nn.Module):
                 ff_dropout = ff_dropout
             )
         elif attentiontype in ['row','colrow'] :
-            self.transformer = RowColTransformer(
+            self.transformer = MyRowColTransformer(
                 num_tokens = self.total_tokens,
                 dim = dim,
                 nfeats= nfeats,
@@ -102,7 +104,8 @@ class SAINT(nn.Module):
                 dim_head = dim_head,
                 attn_dropout = attn_dropout,
                 ff_dropout = ff_dropout,
-                style = attentiontype
+                style = attentiontype,
+                prot_rows= prot_rows
             )
 
         l = input_size // 8
