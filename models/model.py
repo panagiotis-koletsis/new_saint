@@ -141,24 +141,54 @@ class CrossAttention(nn.Module):
 class MyRowColTransformer(nn.Module):
     # testing prototype
     #prot_rows
-    def __init__(self, num_tokens, dim, nfeats, depth, heads, dim_head, attn_dropout, ff_dropout,style='col', prot_rows = 3):
+    def __init__(self, num_tokens, dim, nfeats, depth, heads, dim_head, attn_dropout, ff_dropout,style='col', prot_rows = 3, prot_num = 6, same_layer = False):
         super().__init__()
         print(prot_rows,"prot")
         self.embeds = nn.Embedding(num_tokens, dim)
         self.layers = nn.ModuleList([])
         self.mask_embed =  nn.Embedding(nfeats, dim)
         self.style = style
-
+        self.prot_num = prot_num
+        self.same_layer = same_layer
         #testing
-        self.prototypes = nn.Parameter(torch.randn(prot_rows, nfeats * dim))
+        # self.prot_list = []
+        # for i in range(prot_num):
+        #     #self.prototypes = nn.Parameter(torch.randn(prot_rows, nfeats * dim))
+        #     self.prot_list.append(nn.Parameter(torch.randn(prot_rows, nfeats * dim)))
+
+        self.prot_list = nn.ParameterList([
+            nn.Parameter(torch.randn(prot_rows, nfeats * dim)) for _ in range(prot_num)
+        ])
+
+
         for _ in range(depth):
             if self.style == 'colrow':
-                self.layers.append(nn.ModuleList([
-                    PreNorm(dim, Residual(Attention(dim, heads = heads, dim_head = dim_head, dropout = attn_dropout))),
-                    PreNorm(dim, Residual(FeedForward(dim, dropout = ff_dropout))),
-                    PreNorm(dim*nfeats, Residual(CrossAttention(dim=dim*nfeats, prototype_dim=dim*nfeats, heads = heads, dim_head = 64, dropout = attn_dropout))),
-                    PreNorm(dim*nfeats, Residual(FeedForward(dim*nfeats, dropout = ff_dropout))),
-                ]))
+                if self.same_layer:
+                    self.layers.append(nn.ModuleList([
+                        PreNorm(dim, Residual(Attention(dim, heads = heads, dim_head = dim_head, dropout = attn_dropout))),
+                        PreNorm(dim, Residual(FeedForward(dim, dropout = ff_dropout))),
+                        PreNorm(dim*nfeats, Residual(CrossAttention(dim=dim*nfeats, prototype_dim=dim*nfeats, heads = heads, dim_head = 64, dropout = attn_dropout))),
+                        PreNorm(dim*nfeats, Residual(FeedForward(dim*nfeats, dropout = ff_dropout))),
+                    ]))
+                    #print(self.layers)
+                else:
+                    self.comb_layers = nn.ModuleList()
+                    self.layers.append(nn.ModuleList([
+                        PreNorm(dim, Residual(Attention(dim, heads = heads, dim_head = dim_head, dropout = attn_dropout))),
+                        PreNorm(dim, Residual(FeedForward(dim, dropout = ff_dropout))),
+                    ]))
+                    for _ in range(self.prot_num):
+                        self.layers.append(nn.ModuleList([
+                            PreNorm(dim*nfeats, Residual(CrossAttention(dim=dim*nfeats, prototype_dim=dim*nfeats, heads = heads, dim_head = 64, dropout = attn_dropout))),
+                        ]))
+                            
+                    self.layers.append(nn.ModuleList([
+                        PreNorm(dim*nfeats, Residual(FeedForward(dim*nfeats, dropout = ff_dropout))),
+                    ]))
+                    for ml in self.layers:
+                        self.comb_layers.extend(ml)   
+                     
+                    #print(self.comb_layers)
             else:
                 self.layers.append(nn.ModuleList([
                     PreNorm(dim*nfeats, Residual(Attention(dim*nfeats, heads = heads, dim_head = 64, dropout = attn_dropout))),
@@ -170,15 +200,35 @@ class MyRowColTransformer(nn.Module):
             x = torch.cat((x,x_cont),dim=1)
         _, n, _ = x.shape
         if self.style == 'colrow':
-            for attn1, ff1, attn2, ff2 in self.layers:
-                x = attn1(x)
-                x = ff1(x)
+            if self.same_layer:
+                for attn1, ff1, attn2, ff2 in self.layers:
+                    x = attn1(x)
+                    x = ff1(x)
                 #to be checked
            #     x = rearrange(x, 'b n d -> 1 b (n d)')
-                x = rearrange(x, 'b n d -> b 1 (n d)')
-                x = attn2(x=x, prototypes=self.prototypes)
-                x = ff2(x)
+                    x = rearrange(x, 'b n d -> b 1 (n d)')
+
+                    sum = 0 
+                    for prot in self.prot_list:
+                        sum = sum + attn2(x=x, prototypes=prot)
+                    x = sum / len(self.prot_list)
+                # x1 = attn2(x=x, prototypes=self.prototypes)
+                # x2 = attn2(x=x, prototypes=self.prototypes1)
+                # x3 = attn2(x=x, prototypes=self.prototypes2)
+                #x = (x1 + x2 + x3) / 3
+                    x = ff2(x)
            #     x = rearrange(x, '1 b (n d) -> b n d', n = n)
+                    x = rearrange(x, ' b 1 (n d) -> b n d', n=n)
+            else:
+                x = self.comb_layers[0](x)
+                x = self.comb_layers[1](x)
+                x = rearrange(x, 'b n d -> b 1 (n d)')
+                sum = 0
+                for i in range(self.prot_num):
+                    sum = sum + self.comb_layers[i+2](x=x,prototypes = self.prot_list[i].to(x.device))
+                x = sum / self.prot_num
+                x = self.comb_layers[-1](x)
+
                 x = rearrange(x, ' b 1 (n d) -> b n d', n=n)
         else:
              for attn1, ff1 in self.layers:
@@ -408,4 +458,3 @@ class TabAttention(nn.Module):
                     x = torch.cat((flat_categ, x_cont), dim = -1)                    
         flat_x = x.flatten(1)
         return self.mlp(flat_x)
-
