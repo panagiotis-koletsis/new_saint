@@ -2,8 +2,8 @@ This repository is the official PyTorch implementation of SAINT. Find the paper 
 
 # SAINT: Improved Neural Networks for Tabular Data via Row Attention and Contrastive Pre-Training
 
+![image](https://github.com/user-attachments/assets/1951b822-7346-4bfc-8a60-ae4c6ea8399d)
 
-![Overview](pipeline.png)
 
 
 
@@ -22,22 +22,8 @@ Make sure the following requirements are met
 * torch>=1.8.1
 * torchvision>=0.9.1
 
-### Optional
-We used wandb to update our logs. But it is optional.
 ```
-conda install -c conda-forge wandb 
-```
-
-
-## Training & Evaluation
-
-In each of our experiments, we use a single Nvidia GeForce RTX 2080Ti GPU.
-
-
-To train the model(s) in the paper, run this command:
-
-```
-python train.py --dset_id <openml_dataset_id> --task <task_name> --attentiontype <attention_type> 
+python train.py --dset_id <openml_dataset_id> --task <task_name> --attentiontype colrow 
 ```
 
 Pretraining is useful when there are few training data samples. Sample code looks like this. (Use train_robust.py file for pretraining and robustness experiments)
