@@ -1,9 +1,11 @@
-This repository is the official PyTorch implementation of SAINT. Find the paper on [arxiv](https://arxiv.org/abs/2106.01342) 
+# Transformer Based Approach for Tabular Data Using Prototypes
 
+
+This work uses 
 # SAINT: Improved Neural Networks for Tabular Data via Row Attention and Contrastive Pre-Training
+code base and propose an improved version based on prototypes tables. 
 
 ![image](https://github.com/user-attachments/assets/1951b822-7346-4bfc-8a60-ae4c6ea8399d)
-
 
 
 
@@ -64,8 +66,8 @@ We choose the best model by evaluating the model on validation dataset. The AuRO
 
 ## Acknowledgements
 
-We would like to thank the following public repo from which we borrowed various utilites.
-- https://github.com/lucidrains/tab-transformer-pytorch
+SAINT [arxiv](https://arxiv.org/abs/2106.01342) 
+Tabular benchmark [arxiv](https://arxiv.org/abs/2207.08815)
 
 ## License
 This repository is released under the Apache 2.0 license as found in the [LICENSE](LICENSE) file.
