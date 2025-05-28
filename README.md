@@ -27,12 +27,6 @@ Make sure the following requirements are met
 python train.py --dset_id <openml_dataset_id> --task <task_name> --attentiontype colrow 
 ```
 
-Pretraining is useful when there are few training data samples. Sample code looks like this. (Use train_robust.py file for pretraining and robustness experiments)
-```
-python train_robust.py --dset_id <openml_dataset_id> --task <task_name> --attentiontype <attention_type>  --pretrain --pt_tasks <pretraining_task_touse> --pt_aug <augmentations_on_data_touse> --ssl_samples <Number_of_labeled_samples>
-```
-
-
 
 ### Arguments
 * `--dset_id` : Dataset id from OpenML. Works with all the datasets mentioned in the paper. Works with all OpenML datasets.
