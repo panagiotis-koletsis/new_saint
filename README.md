@@ -1,8 +1,7 @@
 # Transformer Based Approach for Tabular Data Using Prototypes
 
 
-This work uses 
-# SAINT: Improved Neural Networks for Tabular Data via Row Attention and Contrastive Pre-Training
+This work uses SAINT: Improved Neural Networks for Tabular Data via Row Attention and Contrastive Pre-Training
 code base and propose an improved version based on prototypes tables. 
 
 ![image](https://github.com/user-attachments/assets/1951b822-7346-4bfc-8a60-ae4c6ea8399d)
